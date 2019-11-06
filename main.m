@@ -8,7 +8,7 @@ sheep = 5; dogs = 4; N = sheep + dogs;
 % Define Robotarium object
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true);
 
-%% Define initial positions
+%% Define experimental parameters
 
 % Define waypoints for the dogs (defined)
 waypoints_dogs = [-1 0.8; -1 -0.8; 1 -0.8; 1 0.8]';
@@ -24,6 +24,9 @@ close_enough = 0.05;
 
 % Set the maximum number of iterations
 iterations = 3000;
+
+% Specify delta disk
+delta = 1;
 
 %% Initialize conversion tools from single-integrator to unicycle dynamics
 
@@ -108,10 +111,7 @@ while FLAG
     FLAG = false; for i = 1:dogs; if distances(i) > close_enough; FLAG = true; end; end
     
     % Update plotting information and locations
-        for q = 1:N
-            robot_labels{q}.Position = x(1:2, q) + [-0.15;0.15];
-            robot_details = sprintf('X-Pos: %0.2f \nY-Pos: %0.2f', x(1,q), x(2,q));
-        end
+    for q = 1:N; robot_labels{q}.Position = x(1:2, q) + [-0.15;0.15]; end
     
     % Define SI commands based on waypoints
     for i = 1:N; dxi(:, i) = controller(x(1:2, i), waypoints(:, i)); end
@@ -139,33 +139,37 @@ while FLAG
     
 end
 
-dxi = zeros(2, N);
+% Reset counter and remove goal labels and boxes
+counter = 1; d.delete; for i = 1:N; goal_labels{i}.delete; end
+
+% Reset flag and reset number of iterations
+FLAG = true; iterations = 1000;
+
+% Plot initial lines on the figure
+% Compute adjacency matrix
+[~, A] = computeLaplacian(N, x, delta); c = 1;
+% For each row and column...
+for i = 1:N
+    for j = 1:N
+        % If there is a connection between the agents, draw a line between them
+        if A(i, j) == 1 && i <= dogs && j <= dogs
+            lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', ':', 'Color', 'r');
+            c = c + 1;
+        elseif A(i, j) == 1 && i <= dogs && j > dogs
+            lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', '--', 'Color', 'g');
+            c = c + 1;
+        elseif A(i, j) == 1 && i > dogs && j <= dogs
+            lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', ':', 'Color', 'r');
+            c = c + 1;
+        end
+    end
+end
 
 %Iterate for the previously specified number of iterations
-for t = 1:iterations
+while FLAG
     
-    A = zeros(N, N); D = zeros(N, N);
-    for i = 1:N
-        if ismember(i, 5:9)
-            neighbors = delta_disk_neighbors(x, i, 1);
-            neighbors(~ismember(neighbors, 1:4)) = [];
-            if ~isempty(neighbors)
-                for j = 1:length(neighbors)
-                    A(i, neighbors(j)) = 1; A(neighbors(j), i) = 1;
-                end
-                D(i, i) = length(neighbors);
-            end
-        else
-            neighbors = delta_disk_neighbors(x, i, 1);
-            neighbors(~ismember(neighbors, 5:9)) = [];
-            if ~isempty(neighbors)
-                for j = 1:length(neighbors)
-                    A(i, neighbors(j)) = 1; A(neighbors(j), i) = 1;
-                end
-                D(i, i) = length(neighbors);
-            end
-        end
-    end; L = D - A;
+    % Compute the delta disk graph laplacian
+    [L, A] = computeLaplacian(N, x, delta);
     
     % Retrieve the most recent poses from the Robotarium.  The time delay is
     % approximately 0.033 seconds
@@ -178,50 +182,82 @@ for t = 1:iterations
     
     for i = 1:N  
         
+        % Initialize the SI command for the agent
         dxi(:, i) = [0; 0];
         
+        % Determine the topological neighbors of the agent
         neighbors = topological_neighbors(L, i);
         
-        if ismember(i, 5:9)
-            for j = 1:length(neighbors)
+        % For each neighbor...
+        for j = 1:length(neighbors)
+            
+            if i <= dogs && j <= dogs
+                % If both agents are dogs, they should repel
+                dxi(:, i) = dxi(:, i) - (xi(:, neighbors(j)) - xi(:, i));
+            elseif i <= dogs && j > dogs
+                % If the neighbor is a sheep and the agent is a dog perform
+                % consensus on the agent
+                dxi(:, i) = dxi(:, i) + (xi(:, neighbors(j)) - xi(:, i));
+            elseif i > dogs && j <= dogs
+                % If the neighbor is a dog and the agent is the sheep, they
+                % should repel
                 dxi(:, i) = dxi(:, i) - (xi(:, neighbors(j)) - xi(:, i));
             end
-        else
-            for j = 1:length(neighbors)
-                dxi(:, i) = dxi(:, i) + (xi(:, neighbors(j)) - xi(:, i));
-            end
+            
         end
         
     end
     
-    %% Avoid actuator errors
-    
-    % To avoid errors, we need to threshold dxi
+    % Threshold dxi to avoid errors
     norms = arrayfun(@(x) norm(dxi(:, x)), 1:N);
     threshold = 3/4*r.max_linear_velocity;
     to_thresh = norms > threshold;
     dxi(:, to_thresh) = threshold*dxi(:, to_thresh)./norms(to_thresh);
     
-    %% Map SI to Uni dynamics and utilize barrier certificates
+    % Transform the single-integrator to unicycle dynamics and utilize
+    % barrier certificates
+    dxu = si_to_uni_dyn(dxi, x); dxu = uni_barrier_cert_boundary(dxu, x);
     
-    % Transform the single-integrator to unicycle dynamics using the the
-    % transformation we created earlier
-    dxu = si_to_uni_dyn(dxi, x);
+    % Set velocities and send to agents
+    r.set_velocities(1:N, dxu); r.step();
     
-    dxu = uni_barrier_cert_boundary(dxu, x);
+    % Update plotting information and locations
+    for q = 1:N; robot_labels{q}.Position = x(1:2, q) + [-0.15;0.15]; end
     
-    %% Send velocities to agents
+    % Increment the counter and determine whether to stop execution
+    counter = counter + 1; if counter > iterations; FLAG = false ;end
     
-    % Set velocities of agents 1,...,N
-    r.set_velocities(1:N, dxu);
+    % Update Iteration and Time marker
+    iteration_caption = sprintf('Iteration %d', counter);
+    time_caption = sprintf('Total Time Elapsed %0.2f', toc(start_time));
+    iteration_label.String = iteration_caption;
+    time_label.String = time_caption;
     
-    % Send the previously set velocities to the agents.  This function must be called!    
-    r.step();
+    % Remove lines
+    if exist('lf', 'var'); for i = 1:length(lf); lf{i}.delete; end; clear lf; end
+    
+    % Plot new lines
+    c = 1;
+    % For each row and column...
+    for i = 1:N
+        for j = 1:N
+            % If there is a connection between the agents, draw a line between them
+            if A(i, j) == 1 && i <= dogs && j <= dogs
+                lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', ':', 'Color', 'r');
+                c = c + 1;
+            elseif A(i, j) == 1 && i <= dogs && j > dogs
+                lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', '--', 'Color', 'g');
+                c = c + 1;
+            elseif A(i, j) == 1 && i > dogs && j <= dogs
+                lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', ':', 'Color', 'r');
+                c = c + 1;
+            end
+        end
+    end
+    
 end
 
-% We can call this function to debug our experiment!  Fix all the errors
-% before submitting to maximize the chance that your experiment runs
-% successfully.
+% We can call this function to debug our experiment!
 r.debug();
 
 %% Helper Functions
@@ -265,5 +301,21 @@ font_ratio = (font_height_meters)/(robotarium_instance.boundaries(4) -...
 % Determine the font size in points so it fits the window. cursize(4) is
 % the hight of the figure window in points.
 font_size = cursize(4) * font_ratio;
+
+end
+
+% Compute the graph laplacian and return laplacian (L) and adjacency (A)
+function [L, A] = computeLaplacian(N, states, delta)
+
+A = zeros(N, N); D = zeros(N, N);
+for i = 1:N
+    neighbors = delta_disk_neighbors(states, i, delta);
+    if ~isempty(neighbors)
+        for j = 1:length(neighbors)
+            A(i, neighbors(j)) = 1; A(neighbors(j), i) = 1;
+        end
+        D(i, i) = length(neighbors);
+    end
+end; L = D - A;
 
 end
