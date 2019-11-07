@@ -139,6 +139,8 @@ while FLAG
     
 end
 
+%%
+
 % Reset counter and remove goal labels and boxes
 counter = 1; d.delete; for i = 1:N; goal_labels{i}.delete; end
 
