@@ -3,18 +3,18 @@
 % 11/2019
 
 % Define number of sheep and dogs
-sheep = 5; dogs = 4; N = sheep + dogs;
+sheep = 3; dogs = 1; N = sheep + dogs;
 
 % Define Robotarium object
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true);
 
 %% Define experimental parameters
 
-% Define waypoints for the dogs (defined)
-waypoints_dogs = [-1 0.8; -1 -0.8; 1 -0.8; 1 0.8]';
+% Define waypoints for the dogs
+waypoints_dogs = [1.5*rand(1); -rand(1)];
 
-% Define waypoints for the sheep (random in [-1, 1])
-waypoints_sheep = 1.4*rand(2, sheep) - 0.7;
+% Define waypoints for the sheep
+waypoints_sheep = [-0.25 -0.25; 0.25 0.25; 0 0]';
 
 % Combine sheep and dog waypoints
 waypoints = [waypoints_dogs waypoints_sheep];
@@ -26,7 +26,14 @@ close_enough = 0.05;
 iterations = 3000;
 
 % Specify delta disk
-delta = 1;
+delta = sqrt(1.5^2 + 1);
+
+% Set possible angles for dog trajectory
+angles = [0 pi/4 pi/2 3*pi/4 pi 5*pi/4 3*pi/2, 7*pi/4];
+
+% Set the dog and (maximum) sheep velocity
+dog_velocity = 0.5*r.max_linear_velocity;
+sheep_velocity = 0.25*r.max_linear_velocity;
 
 %% Initialize conversion tools from single-integrator to unicycle dynamics
 
@@ -150,20 +157,11 @@ FLAG = true; iterations = 1000;
 % Plot initial lines on the figure
 % Compute adjacency matrix
 [~, A] = computeLaplacian(N, x, delta); c = 1;
-% For each row and column...
+% Plot lines
 for i = 1:N
-    for j = 1:N
-        % If there is a connection between the agents, draw a line between them
-        if A(i, j) == 1 && i <= dogs && j <= dogs
-            lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', ':', 'Color', 'r');
-            c = c + 1;
-        elseif A(i, j) == 1 && i <= dogs && j > dogs
-            lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', '--', 'Color', 'g');
-            c = c + 1;
-        elseif A(i, j) == 1 && i > dogs && j <= dogs
-            lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', ':', 'Color', 'r');
-            c = c + 1;
-        end
+    if A(1, i) == 1
+        lf{c} = line([x(1, 1), x(1, i)], [x(2, 1), x(2, i)], 'LineWidth', 1, 'Color', 'k');
+        c = c + 1;
     end
 end
 
@@ -180,9 +178,29 @@ while FLAG
     % Convert to SI states
     xi = uni_to_si_states(x);
     
-    %% Algorithm
+    %% Determine dog heading
+        
+    % Get sheep/dog positions
+    sheep_positions = xi(:, dogs+1:end);
+    dog_position = xi(:, 1);
+
+    % Choose an angle for the dog that maximizes the expected return (ER)
+    ER = zeros(size(angles));           % Initialize ER placeholder
+    % For each angle...
+    for angle = 1:length(angles)
+        % Move the dog by that angle
+        new_state = updateState(sheep_positions, dog_position, angles(angle), ...
+            dog_velocity, sheep_velocity, delta);
+        ER(angle) = net(new_state');    % Estimate ER for the angle
+    end; [B, I] = max(ER); dog_angle = angles(I);
+
+    % Return dog's heading
+    dxi(1, 1) = dog_velocity*cos(dog_angle);
+    dxi(2, 1) = dog_velocity*sin(dog_angle);
     
-    for i = 1:N  
+    %% Update sheep headings
+    
+    for i = 2:N  
         
         % Initialize the SI command for the agent
         dxi(:, i) = [0; 0];
@@ -193,19 +211,21 @@ while FLAG
         % For each neighbor...
         for j = 1:length(neighbors)
             
-            if i <= dogs && j <= dogs
-                % If both agents are dogs, they should repel
-                dxi(:, i) = dxi(:, i) - (xi(:, neighbors(j)) - xi(:, i));
-            elseif i <= dogs && j > dogs
-                % If the neighbor is a sheep and the agent is a dog perform
-                % consensus on the agent
-                dxi(:, i) = dxi(:, i) + (xi(:, neighbors(j)) - xi(:, i));
-            elseif i > dogs && j <= dogs
-                % If the neighbor is a dog and the agent is the sheep, they
-                % should repel
-                dxi(:, i) = dxi(:, i) - (xi(:, neighbors(j)) - xi(:, i));
+            % If the neighbor is a dog...
+            if neighbors(j) <= dogs
+                % Get the distance from the dog
+                dist = norm(xi(:, i) - xi(:, neighbors(j)));
+                % Compute the weight based on the distance
+                w = 1/dist^2;
+                % Compute update
+                dxi(:, i) = dxi(:, i) + w*(xi(:, i) - xi(:, neighbors(j)));
             end
             
+        end
+        
+        % Limit the sheep velocity
+        if norm(dxi(:, i)) > sheep_velocity
+            dxi(:, i) = sheep_velocity*dxi(:, i)/norm(dxi(:, i));
         end
         
     end
@@ -240,20 +260,10 @@ while FLAG
     
     % Plot new lines
     c = 1;
-    % For each row and column...
     for i = 1:N
-        for j = 1:N
-            % If there is a connection between the agents, draw a line between them
-            if A(i, j) == 1 && i <= dogs && j <= dogs
-                lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', ':', 'Color', 'r');
-                c = c + 1;
-            elseif A(i, j) == 1 && i <= dogs && j > dogs
-                lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', '--', 'Color', 'g');
-                c = c + 1;
-            elseif A(i, j) == 1 && i > dogs && j <= dogs
-                lf{c} = line([x(1, i), x(1, j)], [x(2, i), x(2, j)], 'LineWidth', 1, 'LineStyle', ':', 'Color', 'r');
-                c = c + 1;
-            end
+        if A(1, i) == 1
+            lf{c} = line([x(1, 1), x(1, i)], [x(2, 1), x(2, i)], 'LineWidth', 1, 'Color', 'k');
+            c = c + 1;
         end
     end
     
