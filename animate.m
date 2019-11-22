@@ -104,9 +104,12 @@ for i = start_iteration:end_iteration
         col = col./max(col);    % Normalize to range [0, 1]
         
         % Update the colors of each line based on the weights
-        for k = 1:length(angles)
-            l{k}.Color = 1 - [col(k) col(k) col(k)];
+        try
+            for k = 1:length(angles)
+                l{k}.Color = 1 - [col(k) col(k) col(k)];
+            end
         end
+            
         
         % Record video frame
         if vidFLAG; writeVideo(vid, getframe(gcf)); end

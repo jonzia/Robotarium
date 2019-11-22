@@ -12,7 +12,7 @@ dog_position(2) = max(dog_position(2), -1);
 for k = 1:size(sheep_positions, 2)
 
     % Get the distance between sheep and dog
-    dist = norm(sheep_positions(:, k) - dog_position);
+    dist = norm(sheep_positions(:, k) - dog_position');
 
     % Compute weight based on delta disk
     if dist < delta; w = 1/dist^2; else; w = 0; end
@@ -22,7 +22,9 @@ for k = 1:size(sheep_positions, 2)
 
     % Threshold step
     if norm(dx) > sheep_velocity; dx = sheep_velocity*dx/norm(dx); end
-    sheep_positions(:, k) = sheep_positions(:, k) + dx;
+    
+    % Update sheep position
+    sheep_positions(:, k) = sheep_positions(:, k) + dx; 
 
     % Enforce boundaries
     sheep_positions(1, k) = min(sheep_positions(1, k), 1.5);
