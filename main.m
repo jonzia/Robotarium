@@ -14,12 +14,14 @@ r = Robotarium('NumberOfRobots', N, 'ShowFigure', true);
 
 % Define waypoints for the dogs
 % waypoints_dogs = [1.5*rand(1); -rand(1)];
-waypoints_dogs = [1.2; 0.8];
+waypoints_dogs = [1.2; 0];
 % Define waypoints for the sheep
 % waypoints_sheep = [-0.25 -0.25; 0.25 0.25; 0 0]';
 % waypoints_sheep = [0 0; -0.25 0; -0.25 -0.25; 0.25 -0.5; 0.5 0.7;0.7 -0.25]';
 % waypoints_sheep = [0.535 -0.133;-0.207 0.743;0.329 0.234;-0.373 0.219;-0.024 -0.287]';
-waypoints_sheep = [-0.133 0.535;0.743 -0.207;0.234 0.329;0.219 -0.373;-0.287 -0.024]';
+% waypoints_sheep = [-0.133 0.535;0.743 -0.207;0.234 0.329;0.219 -0.373;-0.287 -0.024]';
+% waypoints_sheep = [0.219 -0.373;-0.287 -0.024;0.743 -0.207;-0.133 0.535;0.234 0.329]';
+waypoints_sheep = [0.219 0.2+(-0.373);-0.287 0.2+(-0.024);0.743 0.2+(-0.207);-0.133 0.2+(0.535);0.234 0.2+(0.329)]';
 
 % Combine sheep and dog waypoints
 waypoints = [waypoints_dogs waypoints_sheep];
@@ -28,7 +30,7 @@ waypoints = [waypoints_dogs waypoints_sheep];
 close_enough = 0.05;
 
 % Set the maximum number of iterations
-iterations = 3000;
+iterations = 1000;
 
 % set skip parameter to help it run faster
 skip = 2; % needs to be > 1 for this to work
@@ -193,7 +195,7 @@ while FLAG
     sheep_positions = xi(:, dogs+1:end);
     dog_position = xi(:, 1);
 
-    if(mod(counter,skip) == 1)
+    % if(mod(counter,skip) == 1)
     % Choose an angle for the dog that maximizes the expected return (ER)
     ER = zeros(size(angles));           % Initialize ER placeholder
     % For each angle...
@@ -203,7 +205,7 @@ while FLAG
             dog_velocity, sheep_velocity, delta);
         ER(angle) = net(new_state');    % Estimate ER for the angle
     end; [B, I] = max(ER); dog_angle = angles(I);
-    end
+    % end
     % Return dog's heading
     dxi(1, 1) = dog_velocity*cos(dog_angle);
     dxi(2, 1) = dog_velocity*sin(dog_angle);
@@ -211,7 +213,7 @@ while FLAG
     %% Update sheep headings
     
     for i = 2:N  
-        if(mod(counter,skip) == 1)
+        % if(mod(counter,skip) == 1)
         % Initialize the SI command for the agent
         dxi(:, i) = [0; 0];
         
@@ -237,19 +239,23 @@ while FLAG
         if norm(dxi(:, i)) > sheep_velocity
             dxi(:, i) = sheep_velocity*dxi(:, i)/norm(dxi(:, i));
         end
-        end
+        % end
         
         % Prevent "sticking" to boundaries
-        if abs(xi(1, i) + dxi(1, i)) > 1.4
-            dxi(1, i) = 0;
+        if abs(xi(1, i) + dxi(1, i)) > 1.4 && abs(xi(2, i) + dxi(2, i)) < 0.9
+            dxi(1, i) = -0.001;
             % dxi(2, i) = sign(dxi(2, i))*max(abs(dxi(2, i)), sheep_velocity);
             dxi(2, i) = sheep_velocity;
         end
-        if abs(xi(2, i) + dxi(2, i)) > 0.9
-            dxi(2, i) = 0;
+        if abs(xi(2, i) + dxi(2, i)) > 0.9 && abs(xi(1, i) + dxi(1, i)) < 1.4
+            dxi(2, i) = 0.001;
             % dxi(1, i) = sign(dxi(1, i))*max(abs(dxi(2, i)), sheep_velocity);
             dxi(1, i) = -sheep_velocity;
         end
+%         if abs(xi(2, i) + dxi(2, i)) > 0.9 && abs(xi(1, i) + dxi(1, i)) > 1.4
+%             dxi(2, i) = sheep_velocity;
+%             dxi(1, i) = 0;
+%         end
         
     end
     
