@@ -10,18 +10,15 @@ sheep = 5; dogs = 1; N = sheep + dogs;
 % Define Robotarium object
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true);
 
+% Set path to save video
+vidPath = 'robotarium_simulation.avi';
+
 %% Define experimental parameters
 
 % Define waypoints for the dogs
-% waypoints_dogs = [1.5*rand(1); -rand(1)];
 waypoints_dogs = [1.2; 0];
 % Define waypoints for the sheep
-% waypoints_sheep = [-0.25 -0.25; 0.25 0.25; 0 0]';
-% waypoints_sheep = [0 0; -0.25 0; -0.25 -0.25; 0.25 -0.5; 0.5 0.7;0.7 -0.25]';
-% waypoints_sheep = [0.535 -0.133;-0.207 0.743;0.329 0.234;-0.373 0.219;-0.024 -0.287]';
-% waypoints_sheep = [-0.133 0.535;0.743 -0.207;0.234 0.329;0.219 -0.373;-0.287 -0.024]';
-% waypoints_sheep = [0.219 -0.373;-0.287 -0.024;0.743 -0.207;-0.133 0.535;0.234 0.329]';
-waypoints_sheep = [0.219 0.2+(-0.373);-0.287 0.2+(-0.024);0.743 0.2+(-0.207);-0.133 0.2+(0.535);0.234 0.2+(0.329)]';
+waypoints_sheep = [-0.133 0.535;0.743 -0.207;0.234 0.329;0.219 -0.373;-0.287 -0.024]';
 
 % Combine sheep and dog waypoints
 waypoints = [waypoints_dogs waypoints_sheep];
@@ -33,7 +30,7 @@ close_enough = 0.05;
 iterations = 1000;
 
 % set skip parameter to help it run faster
-skip = 2; % needs to be > 1 for this to work
+skip = 10; % needs to be > 1 for this to work
 
 % Specify delta disk
 delta = sqrt(1.5^2 + 1);
@@ -46,6 +43,12 @@ angles = [0 pi/4 pi/2 3*pi/4 pi 5*pi/4 3*pi/2, 7*pi/4];
 % sheep_velocity = 0.25*r.max_linear_velocity;
 dog_velocity = 0.75*r.max_linear_velocity;
 sheep_velocity = 0.375*r.max_linear_velocity;
+
+%% Initialize video recording
+
+% Create video writer and define video quality and frame rate
+vid = VideoWriter(vidPath); vid.Quality = 100; vid.FrameRate = 10; open(vid);
+
 %% Initialize conversion tools from single-integrator to unicycle dynamics
 
 % Create mapping functions
@@ -53,7 +56,7 @@ sheep_velocity = 0.375*r.max_linear_velocity;
 si_to_uni_dyn = create_si_to_uni_dynamics_with_backwards_motion();
 
 % Create barrier certificates
-uni_barrier_cert_boundary = create_uni_barrier_certificate_with_boundary('SafetyRadius', 0.06);
+% uni_barrier_cert_boundary = create_uni_barrier_certificate_with_boundary('SafetyRadius', 0.06);
 
 % Single-integrator position controller
 controller = create_si_position_controller('XVelocityGain', 0.8, 'YVelocityGain', 0.8, 'VelocityMagnitudeLimit', 0.1);
@@ -141,7 +144,7 @@ while FLAG
     dxi(:, to_thresh) = threshold*dxi(:, to_thresh)./norms(to_thresh);
     
     % Map SI to Uni dynamics and utilize barrier certificates
-    dxu = si_to_uni_dyn(dxi, x); dxu = uni_barrier_cert_boundary(dxu, x);
+    dxu = si_to_uni_dyn(dxi, x); % dxu = uni_barrier_cert_boundary(dxu, x);
     
     % Set velocities and send velocities to agents
     r.set_velocities(1:N, dxu); r.step();
@@ -154,6 +157,9 @@ while FLAG
     time_caption = sprintf('Total Time Elapsed %0.2f', toc(start_time));
     iteration_label.String = iteration_caption;
     time_label.String = time_caption;
+    
+    % Add frame to video
+    if(mod(counter,skip) == 1); writeVideo(vid, getframe(gcf)); end
     
 end
 
@@ -195,67 +201,67 @@ while FLAG
     sheep_positions = xi(:, dogs+1:end);
     dog_position = xi(:, 1);
 
-    % if(mod(counter,skip) == 1)
-    % Choose an angle for the dog that maximizes the expected return (ER)
-    ER = zeros(size(angles));           % Initialize ER placeholder
-    % For each angle...
-    for angle = 1:length(angles)
-        % Move the dog by that angle
-        new_state = updateState(sheep_positions, dog_position, angles(angle), ...
-            dog_velocity, sheep_velocity, delta);
-        ER(angle) = net(new_state');    % Estimate ER for the angle
-    end; [B, I] = max(ER); dog_angle = angles(I);
-    % end
-    % Return dog's heading
-    dxi(1, 1) = dog_velocity*cos(dog_angle);
-    dxi(2, 1) = dog_velocity*sin(dog_angle);
+    % For each dog...
+    for i = 1:dogs
+    
+        if(mod(counter,skip) == 1)
+            % Choose an angle for the dog that maximizes the expected return (ER)
+            ER = zeros(size(angles));           % Initialize ER placeholder
+            % For each angle...
+            for angle = 1:length(angles)
+                % Move the dog by that angle
+                new_state = updateState(sheep_positions, dog_position, angles(angle), ...
+                    dog_velocity, sheep_velocity, delta);
+                ER(angle) = net(new_state');    % Estimate ER for the angle
+            end; [B, I] = max(ER); dog_angle = angles(I);
+        end
+        % Return dog's heading
+        dxi(1, i) = dog_velocity*cos(dog_angle);
+        dxi(2, i) = dog_velocity*sin(dog_angle);
+
+        % Enforce boundaries
+        if abs(xi(1, i) + dxi(1, i)) > 1.5 && abs(xi(2, i) + dxi(2, i)) < 1.0; dxi(1, i) = 0; end
+        if abs(xi(2, i) + dxi(2, i)) > 1.0 && abs(xi(1, i) + dxi(1, i)) < 1.5; dxi(2, i) = 0; end
+    
+    end
     
     %% Update sheep headings
     
     for i = 2:N  
-        % if(mod(counter,skip) == 1)
-        % Initialize the SI command for the agent
-        dxi(:, i) = [0; 0];
-        
-        % Determine the topological neighbors of the agent
-        neighbors = topological_neighbors(L, i);
-        
-        % For each neighbor...
-        for j = 1:length(neighbors)
-            
-            % If the neighbor is a dog...
-            if neighbors(j) <= dogs
-                % Get the distance from the dog
-                dist = norm(xi(:, i) - xi(:, neighbors(j)));
-                % Compute the weight based on the distance
-                w = 1/dist^2;
-                % Compute update
-                dxi(:, i) = dxi(:, i) + w*(xi(:, i) - xi(:, neighbors(j)));
+        if(mod(counter,skip) == 1)
+            % Initialize the SI command for the agent
+            dxi(:, i) = [0; 0];
+
+            % Determine the topological neighbors of the agent
+            neighbors = topological_neighbors(L, i);
+
+            % For each neighbor...
+            for j = 1:length(neighbors)
+
+                % If the neighbor is a dog...
+                if neighbors(j) <= dogs
+                    % Get the distance from the dog
+                    dist = norm(xi(:, i) - xi(:, neighbors(j)));
+                    % Compute the weight based on the distance
+                    w = 1/dist^2;
+                    % Compute update
+                    dxi(:, i) = dxi(:, i) + w*(xi(:, i) - xi(:, neighbors(j)));
+                end
+
             end
-            
+
+            % Limit the sheep velocity
+            if norm(dxi(:, i)) > sheep_velocity
+                dxi(:, i) = sheep_velocity*dxi(:, i)/norm(dxi(:, i));
+            end
         end
         
-        % Limit the sheep velocity
-        if norm(dxi(:, i)) > sheep_velocity
-            dxi(:, i) = sheep_velocity*dxi(:, i)/norm(dxi(:, i));
+        % Enforce boundaries
+        if abs(xi(1, i) + dxi(1, i)) > 1.5 && abs(xi(2, i) + dxi(2, i)) < 1.0; dxi(1, i) = 0; end
+        if abs(xi(2, i) + dxi(2, i)) > 1.0 && abs(xi(1, i) + dxi(1, i)) < 1.5; dxi(2, i) = 0; end
+        if abs(xi(2, i) + dxi(2, i)) > 1.0 && abs(xi(1, i) + dxi(1, i)) > 1.5
+            dxi(2, i) = 0; dxi(1, i) = 0;
         end
-        % end
-        
-        % Prevent "sticking" to boundaries
-        if abs(xi(1, i) + dxi(1, i)) > 1.4 && abs(xi(2, i) + dxi(2, i)) < 0.9
-            dxi(1, i) = -0.001;
-            % dxi(2, i) = sign(dxi(2, i))*max(abs(dxi(2, i)), sheep_velocity);
-            dxi(2, i) = sheep_velocity;
-        end
-        if abs(xi(2, i) + dxi(2, i)) > 0.9 && abs(xi(1, i) + dxi(1, i)) < 1.4
-            dxi(2, i) = 0.001;
-            % dxi(1, i) = sign(dxi(1, i))*max(abs(dxi(2, i)), sheep_velocity);
-            dxi(1, i) = -sheep_velocity;
-        end
-%         if abs(xi(2, i) + dxi(2, i)) > 0.9 && abs(xi(1, i) + dxi(1, i)) > 1.4
-%             dxi(2, i) = sheep_velocity;
-%             dxi(1, i) = 0;
-%         end
         
     end
     
@@ -267,7 +273,7 @@ while FLAG
     
     % Transform the single-integrator to unicycle dynamics and utilize
     % barrier certificates
-    dxu = si_to_uni_dyn(dxi, x); dxu = uni_barrier_cert_boundary(dxu, x);
+    dxu = si_to_uni_dyn(dxi, x); % dxu = uni_barrier_cert_boundary(dxu, x);
     
     % Set velocities and send to agents
     r.set_velocities(1:N, dxu); r.step();
@@ -296,7 +302,13 @@ while FLAG
         end
     end
     
+    % Add frame to video
+    if(mod(counter,skip) == 1); writeVideo(vid, getframe(gcf)); end
+    
 end
+
+% Close video
+close(vid);
 
 % We can call this function to debug our experiment!
 r.debug();

@@ -108,6 +108,7 @@ for i = start_iteration:end_iteration
             for k = 1:length(angles)
                 l{k}.Color = 1 - [col(k) col(k) col(k)];
             end
+        catch; continue
         end
             
         
