@@ -9,3 +9,12 @@ Training autonomous agents to perform herding tasks using reinforcement learning
 4. The trained model may be tested in the Robotarium MATLAB simulator with *main.m*.
 
 The video files entitled *ideal_simulation.avi*, *robotarium_simulation.avi*, and *robotarium_video* provide full-access video described in the text, "Training Networked Agents to Perform Herding Tasks using Reinforcement Learning." 
+
+## Model Training
+![model training](https://raw.githubusercontent.com/jonzia/Robotarium/master/Media/trainning.png)
+
+## Computer Simulation
+![computer simulation](https://raw.githubusercontent.com/jonzia/Robotarium/master/Media/simulation.png)
+
+## Robotarium Implementation
+![robotarium](https://raw.githubusercontent.com/jonzia/Robotarium/master/Media/robotarium.png)
